@@ -1,21 +1,21 @@
 <!DOCTYPE html>
-<html>
+<html lang="es">
 <head>
-    <title>ShadowApp 3D 🚗❄️</title>
+    <title>ShadowApp Pro 🚗❄️</title>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     
-    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
-    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+    <script src='https://unpkg.com/maplibre-gl@3.6.2/dist/maplibre-gl.js'></script>
+    <link href='https://unpkg.com/maplibre-gl@3.6.2/dist/maplibre-gl.css' rel='stylesheet' />
     <script src="https://cdnjs.cloudflare.com/ajax/libs/suncalc/1.8.0/suncalc.min.js"></script>
-    <script src="https://cdn.osmbuildings.org/OSMBuildings-Leaflet.js"></script>
-    
+
     <style>
-        body { margin: 0; font-family: sans-serif; background: #1a1a2e; color: white; overflow: hidden; }
-        #map { height: 65vh; width: 100%; background: #222; }
-        .controls { height: 35vh; padding: 20px; text-align: center; background: #16213e; border-top: 2px solid #e94560; }
-        input[type=range] { width: 90%; margin: 15px 0; accent-color: #e94560; }
-        .btn-aparcar { background: #e94560; border: none; padding: 12px 25px; border-radius: 25px; color: white; font-weight: bold; }
+        body { margin: 0; font-family: -apple-system, sans-serif; background: #1a1a2e; color: white; overflow: hidden; }
+        #map { height: 60vh; width: 100%; }
+        .controls { height: 40vh; padding: 20px; text-align: center; background: #16213e; border-top: 3px solid #e94560; box-sizing: border-box; }
+        input[type=range] { width: 100%; margin: 15px 0; accent-color: #e94560; }
+        .btn-aparcar { background: #e94560; border: none; padding: 15px 30px; border-radius: 30px; color: white; font-weight: bold; width: 100%; font-size: 16px; box-shadow: 0 4px 15px rgba(233, 69, 96, 0.4); }
+        .info-box { background: rgba(255,255,255,0.1); padding: 10px; border-radius: 10px; margin-bottom: 10px; }
     </style>
 </head>
 <body>
@@ -23,18 +23,96 @@
     <div id="map"></div>
     
     <div class="controls">
-        <h2 id="time-display">Hora: Ahora</h2>
+        <div class="info-box">
+            <h2 id="time-display" style="margin:0">Cargando...</h2>
+            <p id="status-text" style="margin:5px 0; font-size: 14px; opacity: 0.8;">Buscando edificios en 3D</p>
+        </div>
+        
         <input type="range" id="hour-slider" min="0" max="24" value="0" step="0.5">
-        <p id="status-text">Cargando edificios...</p>
-        <button class="btn-aparcar" onclick="alert('📍 Ubicación guardada')">📍 He aparcado aquí</button>
+        
+        <button class="btn-aparcar" onclick="marcarAparcamiento()">📍 He aparcado aquí</button>
     </div>
 
     <script>
         const slider = document.getElementById('hour-slider');
         const timeDisplay = document.getElementById('time-display');
-        const status = document.getElementById('status-text');
+        const statusText = document.getElementById('status-text');
+        let map;
 
-        function initApp(lat, lon) {
+        function initMap(lat, lon) {
+            // Usamos un estilo de mapa gratuito y abierto (OpenFreeMap)
+            map = new maplibregl.Map({
+                container: 'map',
+                style: 'https://tiles.openfreemap.org/styles/bright', 
+                center: [lon, lat],
+                zoom: 17,
+                pitch: 60, // Inclinación para ver el 3D
+                bearing: 0
+            });
+
+            map.on('load', () => {
+                // Añadimos los edificios en 3D directamente desde el mapa
+                map.addLayer({
+                    'id': '3d-buildings',
+                    'source': 'openmaptiles',
+                    'source-layer': 'building',
+                    'type': 'fill-extrusion',
+                    'minzoom': 15,
+                    'paint': {
+                        'fill-extrusion-color': '#aaa',
+                        'fill-extrusion-height': ['get', 'render_height'],
+                        'fill-extrusion-base': ['get', 'render_min_height'],
+                        'fill-extrusion-opacity': 0.8
+                    }
+                });
+
+                // Añadimos una luz ambiental que moveremos según el sol
+                actualizarSombras(lat, lon);
+                statusText.innerText = "Edificios 3D cargados. Mueve el tiempo.";
+            });
+
+            slider.addEventListener('input', () => actualizarSombras(lat, lon));
+        }
+
+        function actualizarSombras(lat, lon) {
+            let t = new Date();
+            t.setHours(t.getHours() + parseFloat(slider.value));
+            
+            const sun = SunCalc.getPosition(t, lat, lon);
+            const altitudeDeg = sun.altitude * (180 / Math.PI);
+            const azimuthDeg = sun.azimuth * (180 / Math.PI);
+
+            timeDisplay.innerText = `+${slider.value}h (${t.getHours()}:${t.getMinutes() < 10 ? '0' : ''}${t.getMinutes()})`;
+
+            // Si el sol está fuera, cambiamos la luz del mapa
+            if (sun.altitude > 0) {
+                // Simulamos la dirección de la sombra cambiando el color de los edificios
+                // En MapLibre, para sombras reales sobre el suelo se necesita un cálculo extra,
+                // pero aquí cambiamos la intensidad según la altura del sol.
+                const brightness = Math.min(200, altitudeDeg * 4);
+                map.setPaintProperty('3d-buildings', 'fill-extrusion-color', `rgb(${brightness},${brightness},${brightness + 20})`);
+            } else {
+                map.setPaintProperty('3d-buildings', 'fill-extrusion-color', '#222');
+                statusText.innerText = "🌙 Noche: Todo es sombra";
+            }
+        }
+
+        function marcarAparcamiento() {
+            const center = map.getCenter();
+            new maplibregl.Marker({ color: '#e94560' })
+                .setLngLat(center)
+                .setPopup(new maplibregl.Popup().setHTML("🚗 Coche aparcado"))
+                .addTo(map);
+            alert("Posición guardada. ¡No pierdas la sombra!");
+        }
+
+        navigator.geolocation.getCurrentPosition(
+            pos => initMap(pos.coords.latitude, pos.coords.longitude),
+            err => initMap(41.6176, 0.6201) // Lleida centro
+        );
+    </script>
+</body>
+</html>        function initApp(lat, lon) {
             // 1. Crear el mapa base de Leaflet
             const map = L.map('map').setView([lat, lon], 17);
 
