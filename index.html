@@ -1,21 +1,19 @@
 <!DOCTYPE html>
 <html lang="es">
 <head>
-    <title>ShadowApp Pro 🚗❄️</title>
+    <title>ShadowApp Pro v6.2 🚗❄️</title>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    
     <script src='https://unpkg.com/maplibre-gl@3.6.2/dist/maplibre-gl.js'></script>
     <link href='https://unpkg.com/maplibre-gl@3.6.2/dist/maplibre-gl.css' rel='stylesheet' />
     <script src="https://cdnjs.cloudflare.com/ajax/libs/suncalc/1.8.0/suncalc.min.js"></script>
-
     <style>
-        body { margin: 0; font-family: -apple-system, sans-serif; background: #1a1a2e; color: white; overflow: hidden; }
+        body { margin: 0; font-family: sans-serif; background: #1a1a2e; color: white; overflow: hidden; }
         #map { height: 60vh; width: 100%; }
         .controls { height: 40vh; padding: 20px; text-align: center; background: #16213e; border-top: 3px solid #e94560; box-sizing: border-box; }
         input[type=range] { width: 100%; margin: 15px 0; accent-color: #e94560; }
-        .btn-aparcar { background: #e94560; border: none; padding: 15px 30px; border-radius: 30px; color: white; font-weight: bold; width: 100%; font-size: 16px; box-shadow: 0 4px 15px rgba(233, 69, 96, 0.4); }
-        .info-box { background: rgba(255,255,255,0.1); padding: 10px; border-radius: 10px; margin-bottom: 10px; }
+        .btn-aparcar { background: #e94560; border: none; padding: 15px; border-radius: 30px; color: white; font-weight: bold; width: 100%; font-size: 16px; }
+        .info-box { background: rgba(0,0,0,0.3); padding: 10px; border-radius: 10px; margin-bottom: 15px; border: 1px solid rgba(255,255,255,0.1); }
     </style>
 </head>
 <body>
@@ -24,17 +22,115 @@
     
     <div class="controls">
         <div class="info-box">
-            <h2 id="time-display" style="margin:0">Cargando...</h2>
-            <p id="status-text" style="margin:5px 0; font-size: 14px; opacity: 0.8;">Buscando edificios en 3D</p>
+            <h2 id="time-display" style="margin:0">Hora</h2>
+            <p id="sun-angle" style="margin:5px 0; font-size: 14px; color: #f1c40f;">Ángulo del sol: --°</p>
+            <p id="status-text" style="margin:0; font-size: 12px; opacity: 0.7;">La sombra se estira según la elevación</p>
         </div>
         
         <input type="range" id="hour-slider" min="0" max="24" value="0" step="0.5">
-        
         <button class="btn-aparcar" onclick="marcarAparcamiento()">📍 He aparcado aquí</button>
     </div>
 
     <script>
         const slider = document.getElementById('hour-slider');
+        const timeDisplay = document.getElementById('time-display');
+        const sunAngleTxt = document.getElementById('sun-angle');
+        let map;
+
+        function initMap(lat, lon) {
+            map = new maplibregl.Map({
+                container: 'map',
+                style: 'https://tiles.openfreemap.org/styles/bright',
+                center: [lon, lat],
+                zoom: 18,
+                pitch: 65,
+                antialias: true
+            });
+
+            map.on('load', () => {
+                // CAPA DE SOMBRAS (Proyectadas en el suelo)
+                map.addLayer({
+                    'id': 'shadows-ground',
+                    'source': 'openmaptiles',
+                    'source-layer': 'building',
+                    'type': 'fill-extrusion',
+                    'paint': {
+                        'fill-extrusion-color': '#000',
+                        'fill-extrusion-opacity': 0.5,
+                        'fill-extrusion-height': 0.1, 
+                        'fill-extrusion-base': 0
+                    }
+                });
+
+                // CAPA DE EDIFICIOS 3D
+                map.addLayer({
+                    'id': '3d-buildings',
+                    'source': 'openmaptiles',
+                    'source-layer': 'building',
+                    'type': 'fill-extrusion',
+                    'paint': {
+                        'fill-extrusion-color': '#aaa',
+                        'fill-extrusion-height': ['get', 'render_height'],
+                        'fill-extrusion-base': ['get', 'render_min_height'],
+                        'fill-extrusion-opacity': 0.9
+                    }
+                });
+
+                actualizarSombras(lat, lon);
+            });
+
+            slider.addEventListener('input', () => actualizarSombras(lat, lon));
+        }
+
+        function actualizarSombras(lat, lon) {
+            let t = new Date();
+            t.setHours(t.getHours() + parseFloat(slider.value));
+            
+            const sun = SunCalc.getPosition(t, lat, lon);
+            const altitudeDeg = sun.altitude * (180 / Math.PI);
+            
+            timeDisplay.innerText = `+${slider.value}h (${t.getHours()}:${t.getMinutes() < 10 ? '0' : ''}${t.getMinutes()})`;
+            sunAngleTxt.innerText = `Elevación del sol: ${altitudeDeg.toFixed(1)}°`;
+
+            if (sun.altitude > 0) {
+                // CÁLCULO FÍSICO REAL:
+                // L = H * cot(α). Como no tenemos H individual, usamos un factor global.
+                // A menor ángulo (amanecer), mayor longitud.
+                let shadowFactor = 1 / Math.tan(sun.altitude);
+                
+                // Limitamos la sombra para que no sea infinita al amanecer (max factor 5)
+                shadowFactor = Math.min(shadowFactor, 5); 
+
+                const multiplier = 20; // Ajuste para escala del mapa
+                const offsetX = Math.sin(sun.azimuth) * shadowFactor * multiplier;
+                const offsetY = Math.cos(sun.azimuth) * shadowFactor * multiplier;
+
+                map.setPaintProperty('shadows-ground', 'fill-extrusion-opacity', 0.5);
+                map.setPaintProperty('shadows-ground', 'fill-extrusion-translate', [offsetX, offsetY]);
+                
+                // Efecto visual: Edificios más oscuros si el sol está bajo
+                const brightness = Math.max(50, Math.min(220, altitudeDeg * 5));
+                map.setPaintProperty('3d-buildings', 'fill-extrusion-color', `rgb(${brightness},${brightness},${brightness+30})`);
+            } else {
+                // NOCHE
+                map.setPaintProperty('shadows-ground', 'fill-extrusion-opacity', 0);
+                map.setPaintProperty('3d-buildings', 'fill-extrusion-color', '#111');
+                sunAngleTxt.innerText = "🌙 Es de noche";
+            }
+        }
+
+        function marcarAparcamiento() {
+            const c = map.getCenter();
+            new maplibregl.Marker({ color: '#e94560' }).setLngLat(c).addTo(map);
+        }
+
+        navigator.geolocation.getCurrentPosition(
+            pos => initMap(pos.coords.latitude, pos.coords.longitude),
+            err => initMap(41.6176, 0.6201)
+        );
+    </script>
+</body>
+</html>        const slider = document.getElementById('hour-slider');
         const timeDisplay = document.getElementById('time-display');
         const statusText = document.getElementById('status-text');
         let map;
