@@ -1,0 +1,62 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>ShadowApp MVP</title>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+    <style>
+        body { margin: 0; font-family: sans-serif; background: #2c3e50; }
+        #map { height: 70vh; width: 100%; }
+        .controls { height: 30vh; padding: 20px; color: white; text-align: center; }
+        input[type=range] { width: 80%; margin: 15px 0; }
+    </style>
+</head>
+<body>
+    <div id="map"></div>
+    <div class="controls">
+        <h2 id="time-display">Sombra: Ahora</h2>
+        <input type="range" id="hour-slider" min="0" max="24" value="0" step="0.5">
+        <p id="status-text">Cargando mapa...</p>
+    </div>
+
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/suncalc/1.8.0/suncalc.min.js"></script>
+    <script>
+        let map, shadowLine;
+        const slider = document.getElementById('hour-slider');
+        const timeDisplay = document.getElementById('time-display');
+
+        function init(lat, lon) {
+            map = L.map('map').setView([lat, lon], 18);
+            L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png').addTo(map);
+            L.marker([lat, lon]).addTo(map).bindPopup("Tu ubicación");
+            shadowLine = L.polyline([], {color: '#3498db', weight: 8, opacity: 0.6}).addTo(map);
+            update(lat, lon);
+        }
+
+        function update(lat, lon) {
+            let t = new Date();
+            t.setHours(t.getHours() + parseFloat(slider.value));
+            const sun = SunCalc.getPosition(t, lat, lon);
+            timeDisplay.innerText = slider.value == 0 ? "Sombra: Ahora" : `En +${slider.value}h`;
+            
+            if (sun.altitude < 0) {
+                document.getElementById('status-text').innerText = "🌙 Es de noche";
+                shadowLine.setLatLngs([]);
+            } else {
+                const angle = sun.azimuth + Math.PI;
+                const endLat = lat + (Math.cos(angle) * 0.0005);
+                const endLon = lon + (Math.sin(angle) * 0.0005);
+                shadowLine.setLatLngs([[lat, lon], [endLat, endLon]]);
+                document.getElementById('status-text').innerText = "☀️ Calculando sombra...";
+            }
+        }
+
+        navigator.geolocation.getCurrentPosition(pos => {
+            init(pos.coords.latitude, pos.coords.longitude);
+            slider.addEventListener('input', () => update(pos.coords.latitude, pos.coords.longitude));
+        });
+    </script>
+</body>
+</html>
