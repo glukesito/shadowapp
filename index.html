@@ -1,40 +1,190 @@
 <!DOCTYPE html>
 <html lang="es">
 <head>
-    <title>ShadowApp HUD 🚀</title>
+    <title>ShadowApp TimeTraveler 🌍📅</title>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
     <script src='https://unpkg.com/maplibre-gl@3.6.2/dist/maplibre-gl.js'></script>
     <link href='https://unpkg.com/maplibre-gl@3.6.2/dist/maplibre-gl.css' rel='stylesheet' />
     <script src="https://cdnjs.cloudflare.com/ajax/libs/suncalc/1.8.0/suncalc.min.js"></script>
     <style>
-        :root { --glass: rgba(22, 33, 62, 0.75); --accent: #e94560; }
+        :root { --glass: rgba(15, 23, 42, 0.85); --accent: #e94560; }
         body { margin: 0; font-family: -apple-system, sans-serif; background: #000; overflow: hidden; }
-        
-        /* Mapa pantalla completa */
         #map { position: absolute; top: 0; bottom: 0; width: 100%; z-index: 1; }
 
-        /* HUD Superior: Clima y Datos */
+        /* HUD Superior */
         .hud-top {
             position: absolute; top: 20px; left: 20px; right: 20px;
-            display: flex; justify-content: space-between; z-index: 10; pointer-events: none;
+            display: flex; justify-content: space-between; z-index: 10;
         }
         .glass-pill {
             background: var(--glass); backdrop-filter: blur(10px);
-            padding: 8px 15px; border-radius: 20px; border: 1px solid rgba(255,255,255,0.1);
-            color: white; font-size: 13px; font-weight: 500; pointer-events: auto;
+            padding: 10px 18px; border-radius: 25px; border: 1px solid rgba(255,255,255,0.1);
+            color: white; font-size: 13px; display: flex; align-items: center; gap: 8px;
+        }
+        input[type="date"] {
+            background: transparent; border: none; color: white; font-family: inherit; font-size: 13px; outline: none;
         }
 
-        /* HUD Inferior: Selector de Tiempo Estilo Shadowmap */
+        /* HUD Inferior */
         .hud-bottom {
             position: absolute; bottom: 30px; left: 50%; transform: translateX(-50%);
             width: 90%; max-width: 500px; z-index: 10;
-            background: var(--glass); backdrop-filter: blur(15px);
-            padding: 20px; border-radius: 30px; border: 1px solid rgba(255,255,255,0.1);
-            text-align: center; color: white;
+            background: var(--glass); backdrop-filter: blur(20px);
+            padding: 25px; border-radius: 35px; border: 1px solid rgba(255,255,255,0.1);
+            text-align: center; color: white; box-shadow: 0 15px 35px rgba(0,0,0,0.5);
         }
 
-        .time-display { font-size: 28px; font-weight: 700; margin-bottom: 5px; display: block; }
+        .time-display { font-size: 38px; font-weight: 800; display: block; letter-spacing: -1px; }
+        .sun-details { font-size: 11px; text-transform: uppercase; letter-spacing: 2px; opacity: 0.5; margin-bottom: 10px; display: block; }
+
+        input[type=range] {
+            width: 100%; -webkit-appearance: none; background: transparent; margin: 15px 0;
+        }
+        input[type=range]::-webkit-slider-runnable-track {
+            width: 100%; height: 6px; background: rgba(255,255,255,0.1); border-radius: 3px;
+        }
+        input[type=range]::-webkit-slider-thumb {
+            -webkit-appearance: none; height: 26px; width: 26px; border-radius: 50%;
+            background: var(--accent); cursor: pointer; margin-top: -10px;
+            box-shadow: 0 0 20px var(--accent); border: 3px solid white;
+        }
+
+        .btn-park {
+            background: var(--accent); border: none; padding: 15px;
+            border-radius: 20px; color: white; font-weight: bold; width: 100%;
+            cursor: pointer; margin-top: 15px; font-size: 15px; transition: 0.3s;
+        }
+        .btn-park:active { transform: scale(0.96); }
+
+        .maplibregl-ctrl-attrib { display: none; }
+    </style>
+</head>
+<body>
+
+    <div id="map"></div>
+
+    <div class="hud-top">
+        <div class="glass-pill">
+            📅 <input type="date" id="date-picker">
+        </div>
+        <div class="glass-pill" id="weather-tag">☀️ Despejado</div>
+    </div>
+    
+    <div class="hud-bottom">
+        <span class="sun-details" id="sun-angle">ELEVACIÓN: --°</span>
+        <span class="time-display" id="time-txt">12:00</span>
+        <input type="range" id="hour-slider" min="0" max="23.9" value="12" step="0.1">
+        <button class="btn-park" onclick="saveCar()">📍 FIJAR POSICIÓN DEL COCHE</button>
+    </div>
+
+    <script>
+        let map, userPos = { lat: 41.6176, lon: 0.6201 };
+        const slider = document.getElementById('hour-slider');
+        const datePicker = document.getElementById('date-picker');
+        const timeTxt = document.getElementById('time-txt');
+        const sunAngleTag = document.getElementById('sun-angle');
+
+        // Establecer fecha de hoy por defecto
+        const today = new Date().toISOString().split('T')[0];
+        datePicker.value = today;
+
+        function init() {
+            map = new maplibregl.Map({
+                container: 'map',
+                style: 'https://tiles.openfreemap.org/styles/dark', 
+                center: [userPos.lon, userPos.lat],
+                zoom: 17.5,
+                pitch: 65,
+                antialias: true
+            });
+
+            map.on('load', () => {
+                // CAPA DE SOMBRAS
+                map.addLayer({
+                    'id': 'shadows',
+                    'source': 'openmaptiles',
+                    'source-layer': 'building',
+                    'type': 'fill-extrusion',
+                    'paint': {
+                        'fill-extrusion-color': '#000',
+                        'fill-extrusion-opacity': 0.5,
+                        'fill-extrusion-height': 0.1,
+                        'fill-extrusion-base': 0
+                    }
+                });
+
+                // CAPA DE EDIFICIOS 3D
+                map.addLayer({
+                    'id': 'buildings',
+                    'source': 'openmaptiles',
+                    'source-layer': 'building',
+                    'type': 'fill-extrusion',
+                    'paint': {
+                        'fill-extrusion-color': '#2d3748',
+                        'fill-extrusion-height': ['coalesce', ['get', 'height'], 15],
+                        'fill-extrusion-base': ['coalesce', ['get', 'min_height'], 0],
+                        'fill-extrusion-opacity': 0.9
+                    }
+                });
+
+                update();
+            });
+
+            slider.addEventListener('input', update);
+            datePicker.addEventListener('change', update);
+        }
+
+        function update() {
+            // Combinar la fecha del selector con la hora del slider
+            const selectedDate = new Date(datePicker.value);
+            const hours = Math.floor(slider.value);
+            const minutes = Math.floor((slider.value - hours) * 60);
+            selectedDate.setHours(hours, minutes);
+            
+            const sun = SunCalc.getPosition(selectedDate, userPos.lat, userPos.lon);
+            const alt = sun.altitude * (180 / Math.PI);
+            
+            // Actualizar Interfaz
+            timeTxt.innerText = selectedDate.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', hour12: false });
+            sunAngleTag.innerText = `ELEVACIÓN: ${alt.toFixed(1)}°`;
+
+            if (alt > 0) {
+                // Física de sombra mejorada
+                const shadowLen = Math.min(1 / Math.tan(sun.altitude), 6);
+                const zoomAdjust = Math.pow(2, 17.5 - map.getZoom());
+                const mult = 14 * zoomAdjust;
+
+                const dx = Math.sin(sun.azimuth) * shadowLen * mult;
+                const dy = Math.cos(sun.azimuth) * shadowLen * mult;
+
+                map.setPaintProperty('shadows', 'fill-extrusion-opacity', 0.5);
+                map.setPaintProperty('shadows', 'fill-extrusion-translate', [dx, dy]);
+                
+                const light = Math.max(40, Math.min(180, alt * 4));
+                map.setPaintProperty('buildings', 'fill-extrusion-color', `rgb(${light},${light+5},${light+20})`);
+            } else {
+                map.setPaintProperty('shadows', 'fill-extrusion-opacity', 0);
+                map.setPaintProperty('buildings', 'fill-extrusion-color', '#10141d');
+            }
+        }
+
+        function saveCar() {
+            const center = map.getCenter();
+            new maplibregl.Marker({ color: '#e94560' }).setLngLat(center).addTo(map);
+            alert("Coche marcado. Puedes cambiar el día y la hora para ver cuándo le dará el sol.");
+        }
+
+        navigator.geolocation.getCurrentPosition(
+            p => { 
+                userPos = { lat: p.coords.latitude, lon: p.coords.longitude }; 
+                init(); 
+            },
+            () => init()
+        );
+    </script>
+</body>
+</html>        .time-display { font-size: 28px; font-weight: 700; margin-bottom: 5px; display: block; }
         .sun-info { font-size: 11px; text-transform: uppercase; letter-spacing: 1px; opacity: 0.6; }
 
         /* Slider Custom */
