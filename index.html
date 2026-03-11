@@ -8,14 +8,14 @@
     <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
     <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/suncalc/1.8.0/suncalc.min.js"></script>
-    <script src="https://cdn.osmbuildings.org/4.1.1/OSMBuildings.js"></script>
+    <script src="https://cdn.osmbuildings.org/OSMBuildings-Leaflet.js"></script>
     
     <style>
         body { margin: 0; font-family: sans-serif; background: #1a1a2e; color: white; overflow: hidden; }
         #map { height: 65vh; width: 100%; background: #222; }
         .controls { height: 35vh; padding: 20px; text-align: center; background: #16213e; border-top: 2px solid #e94560; }
         input[type=range] { width: 90%; margin: 15px 0; accent-color: #e94560; }
-        .btn-aparcar { background: #e94560; border: none; padding: 12px 25px; border-radius: 25px; color: white; font-weight: bold; box-shadow: 0 4px 10px rgba(0,0,0,0.3); }
+        .btn-aparcar { background: #e94560; border: none; padding: 12px 25px; border-radius: 25px; color: white; font-weight: bold; }
     </style>
 </head>
 <body>
@@ -25,48 +25,43 @@
     <div class="controls">
         <h2 id="time-display">Hora: Ahora</h2>
         <input type="range" id="hour-slider" min="0" max="24" value="0" step="0.5">
-        <p id="status-text">Cargando motor 3D...</p>
-        <button class="btn-aparcar" onclick="alert('Ubicación guardada. Te avisaremos si el sol se acerca.')">📍 He aparcado aquí</button>
+        <p id="status-text">Cargando edificios...</p>
+        <button class="btn-aparcar" onclick="alert('📍 Ubicación guardada')">📍 He aparcado aquí</button>
     </div>
 
     <script>
         const slider = document.getElementById('hour-slider');
         const timeDisplay = document.getElementById('time-display');
         const status = document.getElementById('status-text');
-        let osmb;
 
         function initApp(lat, lon) {
-            // Si ya existe un mapa, lo limpiamos
-            document.getElementById('map').innerHTML = '';
-            
-            osmb = new OSMBuildings({
-                container: 'map',
-                position: { latitude: lat, longitude: lon },
-                zoom: 18,
-                minZoom: 15,
-                effects: ['shadows'],
-                attribution: '© OSMBuildings'
-            });
+            // 1. Crear el mapa base de Leaflet
+            const map = L.map('map').setView([lat, lon], 17);
 
-            // CORRECCIÓN AQUÍ: El método correcto es addMapTiles, no addTiles
-            osmb.addMapTiles('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png');
+            // 2. Usar un servidor de mapas que NO falle (sin el subdominio 'd')
+            L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', {
+                attribution: '© OpenStreetMap'
+            }).addTo(map);
+
+            // 3. Cargar el motor de edificios 3D
+            const osmb = new OSMBuildings(map).date(new Date()).load('https://{s}.data.osmbuildings.org/0.2/anonymous/tile/{z}/{x}/{y}.json');
 
             function update() {
                 let t = new Date();
                 t.setHours(t.getHours() + parseFloat(slider.value));
                 timeDisplay.innerText = `En +${slider.value}h (${t.getHours()}:${t.getMinutes() < 10 ? '0' : ''}${t.getMinutes()})`;
+                
+                // Actualizar las sombras
                 osmb.date(t);
             }
 
             slider.addEventListener('input', update);
-            update();
-            status.innerText = "¡Mapa 3D Activo! 🚀";
+            status.innerText = "¡Mapa 3D y sombras listos! 🚀";
         }
 
-        // Obtener ubicación
         navigator.geolocation.getCurrentPosition(
             pos => initApp(pos.coords.latitude, pos.coords.longitude),
-            err => initApp(40.4167, -3.7033) // Madrid por defecto
+            err => initApp(41.6176, 0.6201) // Lleida centro por defecto
         );
     </script>
 </body>
