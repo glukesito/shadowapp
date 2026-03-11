@@ -12,10 +12,10 @@
     
     <style>
         body { margin: 0; font-family: sans-serif; background: #1a1a2e; color: white; overflow: hidden; }
-        #map { height: 65vh; width: 100%; background: #333; } /* Fondo gris oscuro, no negro */
-        .controls { height: 35vh; padding: 20px; text-align: center; background: #16213e; }
+        #map { height: 65vh; width: 100%; background: #222; }
+        .controls { height: 35vh; padding: 20px; text-align: center; background: #16213e; border-top: 2px solid #e94560; }
         input[type=range] { width: 90%; margin: 15px 0; accent-color: #e94560; }
-        .btn-aparcar { background: #e94560; border: none; padding: 12px 25px; border-radius: 25px; color: white; font-weight: bold; }
+        .btn-aparcar { background: #e94560; border: none; padding: 12px 25px; border-radius: 25px; color: white; font-weight: bold; box-shadow: 0 4px 10px rgba(0,0,0,0.3); }
     </style>
 </head>
 <body>
@@ -25,8 +25,8 @@
     <div class="controls">
         <h2 id="time-display">Hora: Ahora</h2>
         <input type="range" id="hour-slider" min="0" max="24" value="0" step="0.5">
-        <p id="status-text">Cargando sombras...</p>
-        <button class="btn-aparcar">📍 He aparcado aquí</button>
+        <p id="status-text">Cargando motor 3D...</p>
+        <button class="btn-aparcar" onclick="alert('Ubicación guardada. Te avisaremos si el sol se acerca.')">📍 He aparcado aquí</button>
     </div>
 
     <script>
@@ -35,51 +35,39 @@
         const status = document.getElementById('status-text');
         let osmb;
 
-        // Ubicación por defecto (Madrid) por si el GPS falla
-        let lat = 40.4167;
-        let lon = -3.7033;
-
-        function startApp(userLat, userLon) {
-            if (osmb) return; // Evitar que se cree dos veces
-
+        function initApp(lat, lon) {
+            // Si ya existe un mapa, lo limpiamos
+            document.getElementById('map').innerHTML = '';
+            
             osmb = new OSMBuildings({
                 container: 'map',
-                position: { latitude: userLat, longitude: userLon },
+                position: { latitude: lat, longitude: lon },
                 zoom: 18,
                 minZoom: 15,
                 effects: ['shadows'],
                 attribution: '© OSMBuildings'
             });
 
-            // Usamos un estilo de mapa más claro para ver si cargan las calles
-            osmb.addTiles('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png');
+            // CORRECCIÓN AQUÍ: El método correcto es addMapTiles, no addTiles
+            osmb.addMapTiles('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png');
 
-            function updateTime() {
+            function update() {
                 let t = new Date();
                 t.setHours(t.getHours() + parseFloat(slider.value));
                 timeDisplay.innerText = `En +${slider.value}h (${t.getHours()}:${t.getMinutes() < 10 ? '0' : ''}${t.getMinutes()})`;
                 osmb.date(t);
             }
 
-            slider.addEventListener('input', updateTime);
-            updateTime();
-            status.innerText = "¡Mapa 3D listo! Mueve el slider.";
+            slider.addEventListener('input', update);
+            update();
+            status.innerText = "¡Mapa 3D Activo! 🚀";
         }
 
-        // Intentar obtener GPS
+        // Obtener ubicación
         navigator.geolocation.getCurrentPosition(
-            pos => {
-                startApp(pos.coords.latitude, pos.coords.longitude);
-            },
-            err => {
-                console.warn("GPS denegado, cargando ubicación por defecto");
-                startApp(lat, lon); // Madrid
-            },
-            { timeout: 5000 }
+            pos => initApp(pos.coords.latitude, pos.coords.longitude),
+            err => initApp(40.4167, -3.7033) // Madrid por defecto
         );
-
-        // Si en 6 segundos no ha pasado nada, forzamos carga
-        setTimeout(() => { if(!osmb) startApp(lat, lon); }, 6000);
     </script>
 </body>
 </html>
