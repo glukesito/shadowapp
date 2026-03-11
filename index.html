@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html lang="es">
 <head>
-    <title>ShadowApp Pro v6.2 🚗❄️</title>
+    <title>ShadowApp Pro v6.4 🚗🌳🅿️</title>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <script src='https://unpkg.com/maplibre-gl@3.6.2/dist/maplibre-gl.js'></script>
@@ -10,10 +10,12 @@
     <style>
         body { margin: 0; font-family: sans-serif; background: #1a1a2e; color: white; overflow: hidden; }
         #map { height: 60vh; width: 100%; }
-        .controls { height: 40vh; padding: 20px; text-align: center; background: #16213e; border-top: 3px solid #e94560; box-sizing: border-box; }
-        input[type=range] { width: 100%; margin: 15px 0; accent-color: #e94560; }
-        .btn-aparcar { background: #e94560; border: none; padding: 15px; border-radius: 30px; color: white; font-weight: bold; width: 100%; font-size: 16px; }
-        .info-box { background: rgba(0,0,0,0.3); padding: 10px; border-radius: 10px; margin-bottom: 15px; border: 1px solid rgba(255,255,255,0.1); }
+        .controls { height: 40vh; padding: 15px; text-align: center; background: #16213e; border-top: 3px solid #e94560; box-sizing: border-box; }
+        input[type=range] { width: 100%; margin: 10px 0; accent-color: #e94560; }
+        .btn-aparcar { background: #e94560; border: none; padding: 15px; border-radius: 30px; color: white; font-weight: bold; width: 100%; font-size: 16px; margin-top: 5px; }
+        .legend { display: flex; justify-content: space-around; font-size: 12px; margin-bottom: 10px; }
+        .legend-item { display: flex; align-items: center; }
+        .dot { height: 10px; width: 10px; border-radius: 50%; display: inline-block; margin-right: 5px; }
     </style>
 </head>
 <body>
@@ -21,13 +23,16 @@
     <div id="map"></div>
     
     <div class="controls">
-        <div class="info-box">
-            <h2 id="time-display" style="margin:0">Hora</h2>
-            <p id="sun-angle" style="margin:5px 0; font-size: 14px; color: #f1c40f;">Ángulo del sol: --°</p>
-            <p id="status-text" style="margin:0; font-size: 12px; opacity: 0.7;">La sombra se estira según la elevación</p>
+        <div class="legend">
+            <div class="legend-item"><span class="dot" style="background:#2ecc71"></span> Parking Cubierto</div>
+            <div class="legend-item"><span class="dot" style="background:#27ae60"></span> Árboles</div>
         </div>
         
+        <h2 id="time-display" style="margin:0">Hora</h2>
         <input type="range" id="hour-slider" min="0" max="24" value="0" step="0.5">
+        
+        <p id="sun-angle" style="margin:5px 0; font-size: 13px; color: #f1c40f;">Ángulo del sol: --°</p>
+        
         <button class="btn-aparcar" onclick="marcarAparcamiento()">📍 He aparcado aquí</button>
     </div>
 
@@ -43,12 +48,38 @@
                 style: 'https://tiles.openfreemap.org/styles/bright',
                 center: [lon, lat],
                 zoom: 18,
-                pitch: 65,
+                pitch: 60,
                 antialias: true
             });
 
             map.on('load', () => {
-                // CAPA DE SOMBRAS (Proyectadas en el suelo)
+                // 1. CAPA DE PARKINGS CUBIERTOS (Sombra garantizada)
+                map.addLayer({
+                    'id': 'parkings-cubiertos',
+                    'source': 'openmaptiles',
+                    'source-layer': 'transportation',
+                    'filter': ['all', ['==', 'class', 'parking']], // Aquí filtramos parkings
+                    'type': 'fill',
+                    'paint': {
+                        'fill-color': '#2ecc71', 
+                        'fill-opacity': 0.4
+                    }
+                });
+
+                // 2. CAPA DE ÁRBOLES (Puntos verdes)
+                map.addLayer({
+                    'id': 'arboles',
+                    'source': 'openmaptiles',
+                    'source-layer': 'landuse',
+                    'filter': ['==', 'class', 'park'], // Usamos parques como referencia de vegetación
+                    'type': 'fill',
+                    'paint': {
+                        'fill-color': '#27ae60',
+                        'fill-opacity': 0.3
+                    }
+                });
+
+                // 3. CAPA DE SOMBRAS EDIFICIOS (En el suelo)
                 map.addLayer({
                     'id': 'shadows-ground',
                     'source': 'openmaptiles',
@@ -57,12 +88,12 @@
                     'paint': {
                         'fill-extrusion-color': '#000',
                         'fill-extrusion-opacity': 0.5,
-                        'fill-extrusion-height': 0.1, 
+                        'fill-extrusion-height': 0.1,
                         'fill-extrusion-base': 0
                     }
                 });
 
-                // CAPA DE EDIFICIOS 3D
+                // 4. CAPA DE EDIFICIOS 3D
                 map.addLayer({
                     'id': '3d-buildings',
                     'source': 'openmaptiles',
@@ -85,7 +116,6 @@
         function actualizarSombras(lat, lon) {
             let t = new Date();
             t.setHours(t.getHours() + parseFloat(slider.value));
-            
             const sun = SunCalc.getPosition(t, lat, lon);
             const altitudeDeg = sun.altitude * (180 / Math.PI);
             
@@ -93,29 +123,21 @@
             sunAngleTxt.innerText = `Elevación del sol: ${altitudeDeg.toFixed(1)}°`;
 
             if (sun.altitude > 0) {
-                // CÁLCULO FÍSICO REAL:
-                // L = H * cot(α). Como no tenemos H individual, usamos un factor global.
-                // A menor ángulo (amanecer), mayor longitud.
                 let shadowFactor = 1 / Math.tan(sun.altitude);
-                
-                // Limitamos la sombra para que no sea infinita al amanecer (max factor 5)
                 shadowFactor = Math.min(shadowFactor, 5); 
 
-                const multiplier = 20; // Ajuste para escala del mapa
+                const multiplier = 20; 
                 const offsetX = Math.sin(sun.azimuth) * shadowFactor * multiplier;
                 const offsetY = Math.cos(sun.azimuth) * shadowFactor * multiplier;
 
                 map.setPaintProperty('shadows-ground', 'fill-extrusion-opacity', 0.5);
                 map.setPaintProperty('shadows-ground', 'fill-extrusion-translate', [offsetX, offsetY]);
                 
-                // Efecto visual: Edificios más oscuros si el sol está bajo
                 const brightness = Math.max(50, Math.min(220, altitudeDeg * 5));
                 map.setPaintProperty('3d-buildings', 'fill-extrusion-color', `rgb(${brightness},${brightness},${brightness+30})`);
             } else {
-                // NOCHE
                 map.setPaintProperty('shadows-ground', 'fill-extrusion-opacity', 0);
                 map.setPaintProperty('3d-buildings', 'fill-extrusion-color', '#111');
-                sunAngleTxt.innerText = "🌙 Es de noche";
             }
         }
 
@@ -127,115 +149,6 @@
         navigator.geolocation.getCurrentPosition(
             pos => initMap(pos.coords.latitude, pos.coords.longitude),
             err => initMap(41.6176, 0.6201)
-        );
-    </script>
-</body>
-</html>        const slider = document.getElementById('hour-slider');
-        const timeDisplay = document.getElementById('time-display');
-        const statusText = document.getElementById('status-text');
-        let map;
-
-        function initMap(lat, lon) {
-            // Usamos un estilo de mapa gratuito y abierto (OpenFreeMap)
-            map = new maplibregl.Map({
-                container: 'map',
-                style: 'https://tiles.openfreemap.org/styles/bright', 
-                center: [lon, lat],
-                zoom: 17,
-                pitch: 60, // Inclinación para ver el 3D
-                bearing: 0
-            });
-
-            map.on('load', () => {
-                // Añadimos los edificios en 3D directamente desde el mapa
-                map.addLayer({
-                    'id': '3d-buildings',
-                    'source': 'openmaptiles',
-                    'source-layer': 'building',
-                    'type': 'fill-extrusion',
-                    'minzoom': 15,
-                    'paint': {
-                        'fill-extrusion-color': '#aaa',
-                        'fill-extrusion-height': ['get', 'render_height'],
-                        'fill-extrusion-base': ['get', 'render_min_height'],
-                        'fill-extrusion-opacity': 0.8
-                    }
-                });
-
-                // Añadimos una luz ambiental que moveremos según el sol
-                actualizarSombras(lat, lon);
-                statusText.innerText = "Edificios 3D cargados. Mueve el tiempo.";
-            });
-
-            slider.addEventListener('input', () => actualizarSombras(lat, lon));
-        }
-
-        function actualizarSombras(lat, lon) {
-            let t = new Date();
-            t.setHours(t.getHours() + parseFloat(slider.value));
-            
-            const sun = SunCalc.getPosition(t, lat, lon);
-            const altitudeDeg = sun.altitude * (180 / Math.PI);
-            const azimuthDeg = sun.azimuth * (180 / Math.PI);
-
-            timeDisplay.innerText = `+${slider.value}h (${t.getHours()}:${t.getMinutes() < 10 ? '0' : ''}${t.getMinutes()})`;
-
-            // Si el sol está fuera, cambiamos la luz del mapa
-            if (sun.altitude > 0) {
-                // Simulamos la dirección de la sombra cambiando el color de los edificios
-                // En MapLibre, para sombras reales sobre el suelo se necesita un cálculo extra,
-                // pero aquí cambiamos la intensidad según la altura del sol.
-                const brightness = Math.min(200, altitudeDeg * 4);
-                map.setPaintProperty('3d-buildings', 'fill-extrusion-color', `rgb(${brightness},${brightness},${brightness + 20})`);
-            } else {
-                map.setPaintProperty('3d-buildings', 'fill-extrusion-color', '#222');
-                statusText.innerText = "🌙 Noche: Todo es sombra";
-            }
-        }
-
-        function marcarAparcamiento() {
-            const center = map.getCenter();
-            new maplibregl.Marker({ color: '#e94560' })
-                .setLngLat(center)
-                .setPopup(new maplibregl.Popup().setHTML("🚗 Coche aparcado"))
-                .addTo(map);
-            alert("Posición guardada. ¡No pierdas la sombra!");
-        }
-
-        navigator.geolocation.getCurrentPosition(
-            pos => initMap(pos.coords.latitude, pos.coords.longitude),
-            err => initMap(41.6176, 0.6201) // Lleida centro
-        );
-    </script>
-</body>
-</html>        function initApp(lat, lon) {
-            // 1. Crear el mapa base de Leaflet
-            const map = L.map('map').setView([lat, lon], 17);
-
-            // 2. Usar un servidor de mapas que NO falle (sin el subdominio 'd')
-            L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', {
-                attribution: '© OpenStreetMap'
-            }).addTo(map);
-
-            // 3. Cargar el motor de edificios 3D
-            const osmb = new OSMBuildings(map).date(new Date()).load('https://{s}.data.osmbuildings.org/0.2/anonymous/tile/{z}/{x}/{y}.json');
-
-            function update() {
-                let t = new Date();
-                t.setHours(t.getHours() + parseFloat(slider.value));
-                timeDisplay.innerText = `En +${slider.value}h (${t.getHours()}:${t.getMinutes() < 10 ? '0' : ''}${t.getMinutes()})`;
-                
-                // Actualizar las sombras
-                osmb.date(t);
-            }
-
-            slider.addEventListener('input', update);
-            status.innerText = "¡Mapa 3D y sombras listos! 🚀";
-        }
-
-        navigator.geolocation.getCurrentPosition(
-            pos => initApp(pos.coords.latitude, pos.coords.longitude),
-            err => initApp(41.6176, 0.6201) // Lleida centro por defecto
         );
     </script>
 </body>
